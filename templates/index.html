@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ML Algo Visualizer</title>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
+    
+    <style>
+        :root {
+            --bg: #0f172a; --panel: #1e293b; --text: #e2e8f0;
+            --accent: #3b82f6; --accent-hover: #2563eb; --border: #334155;
+        }
+        * { box-sizing: border-box; }
+        body {
+            font-family: 'Inter', sans-serif; background-color: var(--bg);
+            color: var(--text); margin: 0; display: flex; height: 100vh; overflow: hidden;
+        }
+        .sidebar {
+            width: 340px; background-color: var(--panel); padding: 2rem;
+            display: flex; flex-direction: column; gap: 1.5rem; border-right: 1px solid var(--border); overflow-y: auto;
+            flex-shrink: 0;
+        }
+        h1 {
+            font-size: 1.4rem; font-weight: 700; margin: 0 0 0.5rem 0;
+            background: linear-gradient(90deg, #60a5fa, #a78bfa);
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+        }
+        h2 { font-size: 0.75rem; color: #94a3b8; text-transform: uppercase; margin: 0; font-weight: 600; letter-spacing: 1px; }
+        .control-group { display: flex; flex-direction: column; gap: 0.6rem; }
+        label { font-size: 0.9rem; color: #cbd5e1; }
+        select, input {
+            background: var(--bg); border: 1px solid var(--border); color: var(--text);
+            padding: 0.7rem; border-radius: 8px; outline: none; width: 100%;
+        }
+        select:focus, input:focus { border-color: var(--accent); }
+        button {
+            background-color: var(--accent); color: white; border: none; padding: 0.9rem;
+            border-radius: 8px; cursor: pointer; font-weight: 600; margin-top: 1rem;
+            transition: background-color 0.2s;
+        }
+        button:hover { background-color: var(--accent-hover); }
+        button:disabled { background-color: #475569; cursor: not-allowed; }
+        
+        .metrics-panel {
+            background: rgba(15, 23, 42, 0.8);
+            padding: 1rem; border-radius: 8px; border: 1px solid var(--border);
+            margin-top: auto; font-family: monospace; font-size: 0.9rem;
+        }
+        .metric-row { display: flex; justify-content: space-between; margin-bottom: 4px; }
+        .metric-val { color: #4ade80; font-weight: bold; }
+
+        /* FIXED RESIZING LOGIC HERE */
+        .main { 
+            flex: 1; 
+            padding: 2rem; 
+            display: flex; 
+            flex-direction: column; 
+            overflow: hidden; /* Prevents container from growing with child */
+        }
+        #plot-area {
+            flex: 1; /* Fills remaining space */
+            min-height: 0; /* Critical flex property to allow shrinking */
+            width: 100%;
+            background: var(--panel);
+            border-radius: 16px; 
+            border: 1px solid var(--border); 
+            box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+            position: relative;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="sidebar">
+        <div>
+            <h1>ML Visualizer</h1>
+            <p style="font-size: 0.8rem; color: #64748b; margin: 0;">Visualize Algorithms from Scratch</p>
+        </div>
+        
+        <div class="control-group">
+            <h2>Algorithm</h2>
+            <select id="algo-selector">
+                <option value="linear_regression">Linear Regression</option>
+                <option value="polynomial_regression">Polynomial Regression</option>
+                <option value="logistic_regression">Logistic Regression</option>
+                <option value="svm">Linear SVM</option>
+                <option value="knn">K-Nearest Neighbors (KNN)</option>
+                <option value="naive_bayes">Naive Bayes</option>
+                <option value="decision_tree">Decision Tree</option>
+                <option value="kmeans">K-Means Clustering</option>
+                <option value="dbscan">DBSCAN</option>
+            </select>
+        </div>
+
+        <div class="control-group" id="params-container"></div>
+
+        <div class="metrics-panel" id="metrics">
+            <div class="metric-row"><span>Status:</span> <span id="status-text" class="metric-val" style="color:#94a3b8">Idle</span></div>
+            <div class="metric-row"><span>Metric:</span> <span id="metric-val" class="metric-val">--</span></div>
+        </div>
+
+        <button onclick="runAlgorithm()" id="run-btn">Visualize Algorithm</button>
+    </div>
+
+    <div class="main">
+        <div id="plot-area"></div>
+    </div>
+
+    <script>
+        // --- CONFIGURATION ---
+        const algoConfigs = {
+            'linear_regression': [
+                {id: 'param1', label: 'Learning Rate', type: 'number', val: 0.05, step: 0.01},
+                {id: 'param2', label: 'Epochs', type: 'number', val: 50, step: 1}
+            ],
+            'polynomial_regression': [
+                {id: 'param1', label: 'Learning Rate', type: 'number', val: 0.0001, step: 0.0001},
+                {id: 'param2', label: 'Epochs', type: 'number', val: 50, step: 5}
+            ],
+            'logistic_regression': [
+                {id: 'param1', label: 'Learning Rate', type: 'number', val: 0.1, step: 0.01},
+                {id: 'param2', label: 'Epochs', type: 'number', val: 50, step: 1}
+            ],
+            'svm': [
+                {id: 'param1', label: 'Learning Rate', type: 'number', val: 0.001, step: 0.001},
+                {id: 'param2', label: 'Epochs', type: 'number', val: 50, step: 5},
+                {id: 'param3', label: 'C (Penalty)', type: 'number', val: 1.0, step: 0.1}
+            ],
+            'knn': [
+                {id: 'param1', label: 'Neighbors (K)', type: 'number', val: 5, step: 1}
+            ],
+            'naive_bayes': [],
+            'decision_tree': [
+                {id: 'param1', label: 'Max Depth', type: 'number', val: 4, step: 1}
+            ],
+            'kmeans': [
+                {id: 'param1', label: 'Clusters (K)', type: 'number', val: 3, step: 1},
+                {id: 'param2', label: 'Max Iterations', type: 'number', val: 10, step: 1}
+            ],
+            'dbscan': [
+                {id: 'param1', label: 'Epsilon (Radius)', type: 'number', val: 0.5, step: 0.1},
+                {id: 'param2', label: 'Min Points', type: 'number', val: 4, step: 1}
+            ]
+        };
+
+        const selector = document.getElementById('algo-selector');
+        const paramsContainer = document.getElementById('params-container');
+        const statusText = document.getElementById('status-text');
+        const metricVal = document.getElementById('metric-val');
+
+        selector.addEventListener('change', updateInputs);
+        function updateInputs() {
+            const algo = selector.value;
+            paramsContainer.innerHTML = '<h2>Hyperparameters</h2>';
+            if (algoConfigs[algo].length === 0) {
+                 paramsContainer.innerHTML += '<p style="font-size:0.8rem; color:#64748b;">No parameters available.</p>';
+            }
+            algoConfigs[algo].forEach(cfg => {
+                paramsContainer.innerHTML += `
+                    <div style="display:flex; flex-direction:column; gap:5px; margin-bottom:10px;">
+                        <label>${cfg.label}</label>
+                        <input type="${cfg.type}" id="${cfg.id}" value="${cfg.val}" step="${cfg.step}">
+                    </div>`;
+            });
+        }
+        updateInputs();
+
+        async function runAlgorithm() {
+            const algo = selector.value;
+            const btn = document.getElementById('run-btn');
+            
+            const p1 = document.getElementById('param1') ? document.getElementById('param1').value : null;
+            const p2 = document.getElementById('param2') ? document.getElementById('param2').value : null;
+            const p3 = document.getElementById('param3') ? document.getElementById('param3').value : null;
+
+            btn.disabled = true;
+            statusText.innerText = "Processing...";
+            statusText.style.color = "#fbbf24";
+
+            // PURGE OLD PLOT to prevent memory leaks/glitches
+            Plotly.purge('plot-area');
+
+            try {
+                const response = await fetch('/run_algo', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ algo, params: {param1: p1, param2: p2, param3: p3} })
+                });
+                
+                if(!response.ok) throw new Error("Backend failed");
+                const data = await response.json();
+                
+                statusText.innerText = "Rendering...";
+                statusText.style.color = "#4ade80";
+                renderPlot(data);
+            } catch (e) {
+                console.error(e);
+                statusText.innerText = "Error";
+                statusText.style.color = "#f87171";
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        function renderPlot(res) {
+            const layout = {
+                plot_bgcolor: '#1e293b', paper_bgcolor: '#1e293b',
+                font: { color: '#e2e8f0', family: 'Inter' },
+                xaxis: { gridcolor: '#334155', zerolinecolor: '#475569' },
+                yaxis: { gridcolor: '#334155', zerolinecolor: '#475569' },
+                margin: {t: 40, l: 40, r: 20, b: 40},
+                showlegend: false,
+                title: 'Algorithm Visualization',
+                autosize: true // Ensures plot fills the flex container
+            };
+
+            // 1. REGRESSION
+            if (res.type === 'regression') {
+                const tracePoints = { x: res.data.x, y: res.data.y, mode: 'markers', marker: { color: '#3b82f6', size: 8 } };
+                const traceLine = { x: res.frames[0].line_x, y: res.frames[0].line_y, mode: 'lines', line: { color: '#f43f5e', width: 4 } };
+                Plotly.newPlot('plot-area', [tracePoints, traceLine], layout).then(() => animateStandard(res.frames, [1]));
+            } 
+            
+            // 2. LINEAR CLASSIFICATION (Logistic / SVM)
+            else if (res.type === 'classification_line') {
+                const tracePoints = {
+                    x: res.data.x, y: res.data.y, mode: 'markers',
+                    marker: { color: res.data.c, colorscale: [[0, '#ef4444'], [1, '#3b82f6']], size: 10, line: {width: 1, color:'white'} }
+                };
+                const traceLine = {
+                    x: res.frames[0].line_x, y: res.frames[0].line_y, mode: 'lines',
+                    line: { color: '#fbbf24', width: 4, dash: 'solid' }
+                };
+                Plotly.newPlot('plot-area', [tracePoints, traceLine], layout).then(() => animateStandard(res.frames, [1]));
+            }
+
+            // 3. CONTOUR CLASSIFICATION (KNN, NB, DT)
+            else if (res.type === 'classification_contour') {
+                const traceContour = {
+                    x: res.contours.x, y: res.contours.y, z: res.contours.z,
+                    type: 'contour', showscale: false,
+                    colorscale: [[0, 'rgba(239, 68, 68, 0.3)'], [1, 'rgba(59, 130, 246, 0.3)']],
+                    contours: { coloring: 'heatmap' }, line: { width: 0 }
+                };
+                const tracePoints = {
+                    x: res.data.x, y: res.data.y, mode: 'markers',
+                    marker: { color: res.data.c, colorscale: [[0, '#ef4444'], [1, '#3b82f6']], size: 10, line:{color:'white', width:1} }
+                };
+                Plotly.newPlot('plot-area', [traceContour, tracePoints], layout);
+                metricVal.innerText = res.metric;
+                statusText.innerText = "Done";
+            }
+
+            // 4. K-MEANS
+            else if (res.type === 'clustering_kmeans') {
+                const tracePoints = {
+                    x: res.data.x, y: res.data.y, mode: 'markers',
+                    marker: { color: res.frames[0].labels, colorscale: 'Viridis', size: 10 }
+                };
+                const traceCentroids = {
+                    x: res.frames[0].centroids.map(c=>c[0]), y: res.frames[0].centroids.map(c=>c[1]),
+                    mode: 'markers', marker: { color: '#f43f5e', symbol: 'x', size: 15, line: {color:'white', width:3} }
+                };
+                Plotly.newPlot('plot-area', [tracePoints, traceCentroids], layout).then(() => {
+                    const frames = res.frames.map(f => ({
+                        data: [
+                            { marker: { color: f.labels, colorscale: 'Viridis', size: 10 } },
+                            { x: f.centroids.map(c=>c[0]), y: f.centroids.map(c=>c[1]) }
+                        ],
+                        metric: f.metric
+                    }));
+                    animateCustom(frames, [0, 1]);
+                });
+            }
+
+            // 5. DBSCAN
+            else if (res.type === 'clustering_dbscan') {
+                const tracePoints = {
+                    x: res.data.x, y: res.data.y, mode: 'markers',
+                    marker: { color: res.frames[0].labels, colorscale: 'Jet', cmin: -1, cmax: 3, size: 10, opacity: 0.8 }
+                };
+                Plotly.newPlot('plot-area', [tracePoints], layout).then(() => {
+                    const frames = res.frames.map(f => ({
+                        data: [{ marker: { color: f.labels, colorscale: 'Jet', cmin: -1, cmax: Math.max(...f.labels), size: 10 } }],
+                        metric: f.metric
+                    }));
+                    animateCustom(frames, [0]);
+                });
+            }
+        }
+
+        function animateStandard(frames, traceIndices) {
+            let i = 0;
+            function step() {
+                if (i >= frames.length) { statusText.innerText = "Finished"; return; }
+                const f = frames[i];
+                metricVal.innerText = f.metric;
+                Plotly.animate('plot-area', {
+                    data: [{ x: f.line_x, y: f.line_y }],
+                    traces: traceIndices, layout: {}
+                }, {
+                    transition: { duration: 50, easing: 'linear' },
+                    frame: { duration: 50, redraw: false }
+                }).then(() => { i++; requestAnimationFrame(step); });
+            }
+            step();
+        }
+
+        function animateCustom(frames, traceIndices) {
+            let i = 0;
+            function step() {
+                if (i >= frames.length) { statusText.innerText = "Finished"; return; }
+                const f = frames[i];
+                metricVal.innerText = f.metric;
+                Plotly.animate('plot-area', {
+                    data: f.data, traces: traceIndices, layout: {}
+                }, {
+                    transition: { duration: 400, easing: 'cubic-in-out' },
+                    frame: { duration: 400, redraw: false }
+                }).then(() => { i++; setTimeout(step, 450); });
+            }
+            step();
+        }
+    </script>
+</body>
+</html>
